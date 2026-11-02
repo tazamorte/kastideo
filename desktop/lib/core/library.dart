@@ -349,6 +349,55 @@ class LibraryStore extends ChangeNotifier {
   bool categoryInCountries(String name) => countries.isEmpty || _libraryGroups.contains(name) || _countryAllowed(countryOfCategory(name));
   bool isLibraryItemId(MediaItem item) => !(sources.where((s) => s.id == item.sourceId).firstOrNull?.kind.isIptv ?? true);
 
+  // MARK: Pays des listes (interface Classique)
+
+  /// Pays affiché dans les listes, la recherche et les catégories de la barre latérale (null : tous).
+  String? get listCountry => _prefs.getString('catalog.listCountry');
+
+  void setListCountry(String? code) {
+    if (code == null) {
+      _prefs.remove('catalog.listCountry');
+    } else {
+      _prefs.setString('catalog.listCountry', code);
+    }
+    notifyListeners();
+  }
+
+  final Map<String, String?> _itemCountry = {};
+
+  /// Pays d'un contenu, gardé en mémoire (listes de plusieurs dizaines de milliers de titres).
+  String? cachedCountryOf(MediaItem item) => _itemCountry.putIfAbsent(item.id, () => countryOf(item));
+
+  bool inListCountry(MediaItem item) {
+    final code = listCountry;
+    return code == null || cachedCountryOf(item) == code;
+  }
+
+  int _listCountriesGeneration = -1;
+  final Map<MediaKind, List<(String, int)>> _listCountries = {};
+
+  /// Pays repérés dans les contenus d'une section (catégorie ou nom), du plus fréquent au moins fréquent.
+  List<(String, int)> listCountries(MediaKind kind) {
+    if (_listCountriesGeneration != liveGeneration) {
+      _listCountries.clear();
+      _listCountriesGeneration = liveGeneration;
+    }
+    return _listCountries.putIfAbsent(kind, () {
+      final counts = <String, int>{};
+      for (final item in items(kind)) {
+        final code = cachedCountryOf(item);
+        if (code != null) counts[code] = (counts[code] ?? 0) + 1;
+      }
+      return counts.entries.map((e) => (e.key, e.value)).toList()..sort((a, b) => b.$2.compareTo(a.$2));
+    });
+  }
+
+  /// Contenus d'une catégorie limités au pays des listes.
+  List<MediaItem> itemsInCategoryForList(MediaKind kind, String category) {
+    final all = itemsInCategory(kind, category);
+    return listCountry == null ? all : all.where(inListCountry).toList();
+  }
+
   // MARK: Origine des films et séries (Tout / IPTV / Mes vidéos)
 
   /// Films et séries affichés dans Films et Séries : tout, l'IPTV seul (par défaut) ou « Mes vidéos » seules.
@@ -457,6 +506,7 @@ class LibraryStore extends ChangeNotifier {
     _localEpisodes.clear();
     _library.clear();
     _libraryGroups.clear();
+    _itemCountry.clear();
     final origin = catalogOrigin;
     final providerOrder = <MediaKind, List<String>>{};
     _dedupeOwner.clear();

@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../core/settings.dart';
 import '../l10n.dart';
 
 import '../core/text.dart';
@@ -165,11 +167,21 @@ class _SidebarShellState extends State<SidebarShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     if (width >= SidebarShell.wide) {
-      return Row(children: [
-        SizedBox(width: 236, child: widget.sidebar),
-        VerticalDivider(width: 1, color: KPalette.separator),
-        Expanded(child: widget.child),
-      ]);
+      final settings = context.settings;
+      return ListenableBuilder(
+        listenable: settings,
+        builder: (context, _) => Row(children: [
+          ResizablePane(
+            width: settings.sidebarWidth,
+            min: 200,
+            max: (width * 0.35).clamp(240.0, 520.0),
+            defaultWidth: AppSettings.sidebarWidthDefault,
+            onChanged: (w) => settings.setDouble('layout.sidebarWidth', w),
+            child: widget.sidebar,
+          ),
+          Expanded(child: widget.child),
+        ]),
+      );
     }
     return Scaffold(
       key: _key,
@@ -193,6 +205,74 @@ class _SidebarShellState extends State<SidebarShell> {
         ]),
       ),
     );
+  }
+}
+
+/// Panneau dont on règle la largeur en tirant son bord droit (double-clic : largeur d'origine).
+class ResizablePane extends StatefulWidget {
+  const ResizablePane({
+    super.key,
+    required this.width,
+    required this.min,
+    required this.max,
+    required this.defaultWidth,
+    required this.onChanged,
+    required this.child,
+  });
+  final double width;
+  final double min;
+  final double max;
+  final double defaultWidth;
+  final ValueChanged<double> onChanged;
+  final Widget child;
+
+  @override
+  State<ResizablePane> createState() => _ResizablePaneState();
+}
+
+class _ResizablePaneState extends State<ResizablePane> {
+  double? _dragging;
+  bool _hovering = false;
+
+  double _clamp(double w) => w.clamp(widget.min, math.max(widget.min, widget.max));
+
+  void _end() {
+    final w = _dragging;
+    setState(() => _dragging = null);
+    if (w != null && w != widget.width) widget.onChanged(w);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = _clamp(_dragging ?? widget.width);
+    final active = _hovering || _dragging != null;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(width: width, child: widget.child),
+      Tooltip(
+        message: tr('Tirer pour élargir ou réduire · double-clic : largeur d\'origine'),
+        waitDuration: const Duration(seconds: 1),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          onEnter: (_) => setState(() => _hovering = true),
+          onExit: (_) => setState(() => _hovering = false),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            dragStartBehavior: DragStartBehavior.down,
+            onHorizontalDragStart: (_) => setState(() => _dragging = width),
+            onHorizontalDragUpdate: (d) => setState(() => _dragging = _clamp((_dragging ?? width) + d.delta.dx)),
+            onHorizontalDragEnd: (_) => _end(),
+            onHorizontalDragCancel: _end,
+            onDoubleTap: () => widget.onChanged(widget.defaultWidth),
+            child: SizedBox(
+              width: 6,
+              child: Center(
+                child: Container(width: active ? 3 : 1, color: active ? KPalette.accent : KPalette.separator),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ]);
   }
 }
 

@@ -103,6 +103,15 @@ class AppSettings extends ChangeNotifier {
   int get replayOffset => _prefs.getInt('replay.offsetMinutes') ?? 0;
   bool get replayReturnToLive => _prefs.getBool('replay.returnToLive') ?? true;
 
+  /// Largeurs de la barre latérale et de la liste (interface Classique), réglées en tirant leur bord.
+  static const sidebarWidthDefault = 260.0;
+  static const listWidthDefault = 360.0;
+  double get sidebarWidth => _prefs.getDouble('layout.sidebarWidth') ?? sidebarWidthDefault;
+  double get listWidth => _prefs.getDouble('layout.listWidth') ?? listWidthDefault;
+
+  /// Films et séries affichés en vignettes (affiches) plutôt qu'en liste.
+  bool gridView(MediaKind kind) => _prefs.getBool('layout.grid.${kind.name}') ?? false;
+
   /// Page de départ d'une section : « all », « favorites », « recents », « last » ou « cat: suivi du nom de la catégorie ».
   String startPage(MediaKind kind) => _prefs.getString('start.${kind.name}') ?? 'all';
 

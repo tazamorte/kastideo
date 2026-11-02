@@ -55,7 +55,10 @@ class Countries {
   static String? _normalize(String token) {
     final alias = _aliases[token];
     if (alias != null) return alias;
-    return codes.contains(token) ? token : null;
+    if (codes.contains(token)) return token;
+    // « MLFR », « MLDE »… : version multilingue d'un pays.
+    if (token.length == 4 && token.startsWith('ML')) return _normalize(token.substring(2));
+    return null;
   }
 
   /// Nom du pays affiché dans les réglages.

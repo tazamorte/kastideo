@@ -12,6 +12,10 @@ void main() {
     expect(Countries.of('ITALIA'), 'IT');
     expect(Countries.of('BRASIL | NOVELAS'), 'BR');
     expect(Countries.of('EN: Movies 4K'), 'EN');
+    expect(Countries.of('|DE| Dark'), 'DE');
+    expect(Countries.of('MLFR| Les Revenants'), 'FR');
+    expect(Countries.of('|MLFR| Les Revenants'), 'FR');
+    expect(Countries.of('MLXX| Test'), isNull);
     expect(Countries.of('Action'), isNull);
     expect(Countries.of('Nouveautés'), isNull);
     expect(Countries.of('SPORT'), isNull);

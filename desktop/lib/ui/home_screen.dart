@@ -89,7 +89,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 constraints: BoxConstraints(minHeight: size.height),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1180),
+                    // Large écran : l'accueil suit la fenêtre au lieu de rester bloqué à 1180 points.
+                    constraints: BoxConstraints(maxWidth: math.max(1180, size.width * 0.86)),
                     child: Padding(
                       padding: _compact ? const EdgeInsets.fromLTRB(16, 12, 16, 40) : const EdgeInsets.fromLTRB(32, 20, 32, 40),
                       child: Column(

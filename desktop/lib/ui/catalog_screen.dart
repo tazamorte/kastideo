@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../core/countries.dart';
 import '../core/epg.dart';
 import '../core/models.dart';
 import '../core/paths.dart';
@@ -53,6 +54,13 @@ class CatalogScreen extends StatelessWidget {
                 : selected != null
                     ? DetailsView(item: selected, page: true)
                     : CinemaView(kind: kind);
+          } else if (kind != MediaKind.live && settings.gridView(kind)) {
+            // Vignettes : la grille occupe toute la largeur ; la fiche s'ouvre en pleine page (bouton Retour).
+            content = navigation.showPlayer
+                ? const PlayerPane(showBack: true)
+                : selected != null
+                    ? DetailsView(key: ValueKey(selected.id), item: selected, page: true)
+                    : ItemList(kind: kind);
           } else if (compact) {
             content = _CompactClassic(kind: kind, selected: selected);
           } else {
@@ -63,14 +71,17 @@ class CatalogScreen extends StatelessWidget {
                     : selected != null
                         ? DetailsView(key: ValueKey(selected.id), item: selected, page: false)
                         : _EmptyPane(kind: kind);
+            final available = MediaQuery.sizeOf(context).width - settings.sidebarWidth;
             content = Row(children: [
-              if (!navigation.theater) ...[
-                SizedBox(
-                  width: 340,
+              if (!navigation.theater)
+                ResizablePane(
+                  width: settings.listWidth,
+                  min: 260,
+                  max: (available * 0.6).clamp(300.0, 900.0),
+                  defaultWidth: AppSettings.listWidthDefault,
+                  onChanged: (w) => settings.setDouble('layout.listWidth', w),
                   child: kind == MediaKind.live && navigation.filter(kind) is ThemesFilter ? const ThemesList() : ItemList(kind: kind),
                 ),
-                VerticalDivider(width: 1, color: KPalette.separator),
-              ],
               Expanded(child: right),
             ]);
           }
@@ -128,10 +139,10 @@ class _EmptyPane extends StatelessWidget {
         alignment: Alignment.center,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(kind == MediaKind.movie ? Icons.movie_outlined : Icons.video_library_outlined,
-              size: 64, color: KPalette.ink.withValues(alpha: 0.35)),
+              size: 64, color: Colors.white.withValues(alpha: 0.35)),
           const SizedBox(height: 12),
           Text(kind == MediaKind.movie ? tr('Choisissez un film') : tr('Choisissez une série'),
-              style: kText(15, color: KPalette.secondaryText)),
+              style: kTextD(15, color: KPalette.secondaryDark)),
         ]),
       );
 }
@@ -141,6 +152,49 @@ String sectionTitle(MediaKind kind) => switch (kind) {
       MediaKind.movie => tr('Films'),
       _ => tr('Séries'),
     };
+
+/// Liste déroulante compacte de la barre latérale (source active, pays).
+class _SidebarDropdown extends StatelessWidget {
+  const _SidebarDropdown({required this.icon, required this.tooltip, required this.value, required this.items, required this.onChanged});
+  final IconData icon;
+  final String tooltip;
+  final String value;
+  final List<(String, String)> items;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 800),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(color: KPalette.ink.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            Icon(icon, size: 15, color: KPalette.ink.withValues(alpha: 0.6)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: value,
+                  isExpanded: true,
+                  isDense: true,
+                  dropdownColor: KPalette.menu,
+                  iconEnabledColor: KPalette.ink.withValues(alpha: 0.6),
+                  style: kText(12),
+                  menuMaxHeight: 420,
+                  items: [
+                    for (final (v, label) in items)
+                      DropdownMenuItem<String>(value: v, child: Text(label, style: kText(12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (v) => onChanged(v == null || v.isEmpty ? null : v),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      );
+}
 
 /// Barre latérale : sections, accueil, favoris, récents et catégories.
 class Sidebar extends StatelessWidget {
@@ -169,6 +223,9 @@ class Sidebar extends StatelessWidget {
         builder: (context, _) {
           final categories = library.categories(kind);
           final filter = navigation.filter(kind);
+          final country = library.listCountry;
+          final countries = library.listCountries(kind);
+          final allCount = country == null ? library.count(kind) : (countries.where((c) => c.$1 == country).firstOrNull?.$2 ?? 0);
           final allLabel = switch (kind) {
             MediaKind.live => tr('Toutes les chaînes'),
             MediaKind.movie => tr('Tous les films'),
@@ -180,6 +237,21 @@ class Sidebar extends StatelessWidget {
               child: SectionPicker(current: kind),
             ),
             const SourcePicker(),
+            if (countries.isNotEmpty || country != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+                child: _SidebarDropdown(
+                  icon: Icons.public_rounded,
+                  tooltip: tr('Pays des listes, de la recherche et des catégories'),
+                  value: country ?? '',
+                  items: [
+                    ('', tr('Tous les pays')),
+                    if (country != null && !countries.any((c) => c.$1 == country)) (country, Countries.name(country)),
+                    for (final (code, n) in countries) (code, '${Countries.name(code)} ($code) · $n'),
+                  ],
+                  onChanged: library.setListCountry,
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
@@ -190,7 +262,7 @@ class Sidebar extends StatelessWidget {
                   SidebarRow(
                     icon: kind == MediaKind.live ? Icons.sensors_rounded : Icons.grid_view_rounded,
                     label: allLabel,
-                    count: library.count(kind),
+                    count: allCount,
                     selected: filter is AllItems && !_other,
                     onTap: () => navigation.show(kind, const AllItems()),
                   ),
@@ -255,9 +327,9 @@ class Sidebar extends StatelessWidget {
                           padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 4)),
                         ),
                         segments: [
-                          ButtonSegment(value: CatalogOrigin.all, label: Text(tr('Tout'), style: kText(11))),
-                          ButtonSegment(value: CatalogOrigin.iptv, label: Text('IPTV', style: kText(11))),
-                          ButtonSegment(value: CatalogOrigin.library, label: Text(tr('Mes vidéos'), style: kText(11), maxLines: 1, softWrap: false)),
+                          ButtonSegment(value: CatalogOrigin.all, label: FittedBox(fit: BoxFit.scaleDown, child: Text(tr('Tout'), style: kText(11)))),
+                          ButtonSegment(value: CatalogOrigin.iptv, label: FittedBox(fit: BoxFit.scaleDown, child: Text('IPTV', style: kText(11)))),
+                          ButtonSegment(value: CatalogOrigin.library, label: FittedBox(fit: BoxFit.scaleDown, child: Text(tr('Mes vidéos'), style: kText(11), maxLines: 1, softWrap: false))),
                         ],
                         selected: {library.catalogOrigin},
                         onSelectionChanged: (v) => library.setCatalogOrigin(v.first),
@@ -277,15 +349,18 @@ class Sidebar extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                   ]),
-                  for (final name in categories)
-                    SidebarRow(
-                      icon: Icons.folder_outlined,
-                      label: library.categoryName(kind, name),
-                      count: library.itemsInCategory(kind, name).length,
-                      selected: filter is CategoryFilter && filter.name == name && !_other,
-                      onTap: () => navigation.show(kind, CategoryFilter(name)),
-                      onSecondaryTap: (pos) => _categoryMenu(context, name, pos),
-                    ),
+                  for (final (name, count) in [
+                    for (final name in categories) (name, library.itemsInCategoryForList(kind, name).length),
+                  ])
+                    if (country == null || count > 0)
+                      SidebarRow(
+                        icon: Icons.folder_outlined,
+                        label: library.categoryName(kind, name),
+                        count: count,
+                        selected: filter is CategoryFilter && filter.name == name && !_other,
+                        onTap: () => navigation.show(kind, CategoryFilter(name)),
+                        onSecondaryTap: (pos) => _categoryMenu(context, name, pos),
+                      ),
                 ],
               ),
             ),
@@ -507,9 +582,13 @@ List<MediaItem> filteredItems(BuildContext context, MediaKind kind) {
     RecentItems() => library.recentsOf(kind),
     CategoryFilter(:final name) => library.itemsInCategory(kind, name),
   };
+  // Le pays choisi limite toutes les chaînes, tous les titres et les catégories (pas les favoris ni les récents).
+  final byCountry = library.listCountry != null && navigation.filter(kind) is! FavoriteItems && navigation.filter(kind) is! RecentItems
+      ? base.where(library.inListCountry).toList()
+      : base;
   final key = navigation.search.searchKey;
-  if (key.isEmpty) return base;
-  return base.where((i) => i.searchKey.contains(key)).toList();
+  if (key.isEmpty) return byCountry;
+  return byCountry.where((i) => i.searchKey.contains(key)).toList();
 }
 
 String filterTitle(BuildContext context, MediaKind kind) => switch (context.navigation.filter(kind)) {
@@ -552,7 +631,7 @@ class _ItemListState extends State<ItemList> {
     return Container(
       color: KPalette.list,
       child: ListenableBuilder(
-        listenable: Listenable.merge([library, navigation, playback, context.watch, if (widget.kind == MediaKind.live) context.guide]),
+        listenable: Listenable.merge([library, navigation, playback, context.watch, context.settings, if (widget.kind == MediaKind.live) context.guide]),
         builder: (context, _) {
           final items = filteredItems(context, widget.kind);
           final selectedId = widget.kind == MediaKind.live ? playback.current?.id : navigation.selected(widget.kind)?.id;
@@ -560,6 +639,8 @@ class _ItemListState extends State<ItemList> {
           final filter = navigation.filter(widget.kind);
           final arrangeable = filter is CategoryFilter && navigation.search.trim().isEmpty;
           final arranging = _arranging && arrangeable;
+          final canGrid = widget.kind != MediaKind.live;
+          final grid = canGrid && context.settings.gridView(widget.kind);
           return Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
@@ -576,6 +657,13 @@ class _ItemListState extends State<ItemList> {
                     visualDensity: VisualDensity.compact,
                     onPressed: () => setState(() => _arranging = !_arranging),
                     icon: Icon(Icons.swap_vert_rounded, color: _arranging ? KPalette.accent : null),
+                  ),
+                if (canGrid)
+                  IconButton(
+                    tooltip: grid ? tr('Afficher en liste') : tr('Afficher en vignettes'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => context.settings.setBool('layout.grid.${widget.kind.name}', !grid),
+                    icon: Icon(grid ? Icons.view_list_rounded : Icons.grid_view_rounded),
                   ),
               ]),
             ),
@@ -597,6 +685,18 @@ class _ItemListState extends State<ItemList> {
                   ? RecentsEditor(kind: widget.kind)
                   : items.isEmpty
                   ? Center(child: Text(tr('Aucun résultat'), style: kText(13, color: KPalette.secondaryText)))
+                  : grid
+                  ? GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 170 * KPalette.cardScale,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 14,
+                        childAspectRatio: 0.52,
+                      ),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) => ItemTile(item: items[index], selected: selectedId == items[index].id),
+                    )
                   : ListView.builder(
                       itemCount: items.length,
                       itemExtent: (widget.kind == MediaKind.live ? 56 : 64) * KPalette.density,
@@ -652,6 +752,8 @@ class ItemRow extends StatelessWidget {
     final isLive = item.kind == MediaKind.live;
     final fraction = isLive ? null : context.watch.fraction(item.id);
     final programme = isLive ? context.guide.current(item) : null;
+    // Texte de la ligne choisie lisible sur l'accent (clair ou foncé selon la couleur).
+    final ink = selected ? KPalette.onAccent : KPalette.ink;
     return MenuTap(
       onMenu: (details) => showItemMenu(context, item, details.globalPosition),
       child: Hover(
@@ -661,7 +763,7 @@ class ItemRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: selected
-                ? KPalette.accent.withValues(alpha: 0.85)
+                ? KPalette.accent
                 : hovering
                     ? KPalette.ink.withValues(alpha: 0.06)
                     : Colors.transparent,
@@ -679,14 +781,14 @@ class ItemRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(isLive ? item.name : item.displayName,
-                      style: kText(13, weight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      style: kText(13, weight: FontWeight.w500, color: ink), maxLines: 1, overflow: TextOverflow.ellipsis),
                   Text(
                     programme != null
                         ? '${hm(programme.start)} · ${programme.title}'
                         : isLive
                             ? tr('Programme non disponible')
                             : item.group,
-                    style: kText(11, color: KPalette.ink.withValues(alpha: selected ? 0.8 : 0.5)),
+                    style: kText(11, color: ink.withValues(alpha: selected ? 0.8 : 0.5)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -696,8 +798,8 @@ class ItemRow extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: programme.progress(),
                         minHeight: 2,
-                        color: selected ? KPalette.ink : KPalette.orange,
-                        backgroundColor: KPalette.ink.withValues(alpha: 0.15),
+                        color: selected ? ink : KPalette.orange,
+                        backgroundColor: ink.withValues(alpha: 0.15),
                       ),
                     ),
                   if (fraction != null)
@@ -706,8 +808,8 @@ class ItemRow extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: fraction,
                         minHeight: 2,
-                        color: selected ? KPalette.ink : KPalette.orange,
-                        backgroundColor: KPalette.ink.withValues(alpha: 0.15),
+                        color: selected ? ink : KPalette.orange,
+                        backgroundColor: ink.withValues(alpha: 0.15),
                       ),
                     ),
                 ],
@@ -718,12 +820,72 @@ class ItemRow extends StatelessWidget {
                 padding: const EdgeInsets.only(right: 4),
                 child: Tooltip(
                   message: '${tr('Replay disponible')} : ${context.library.replayDays(item)} ${tr('jours')}',
-                  child: Icon(Icons.replay_rounded, size: 14, color: selected ? KPalette.ink70 : KPalette.secondaryText),
+                  child: Icon(Icons.replay_rounded, size: 14, color: selected ? ink.withValues(alpha: 0.7) : KPalette.secondaryText),
                 ),
               ),
-            if (favorite) Icon(Icons.star_rounded, size: 15, color: selected ? KPalette.ink : KPalette.orange),
+            if (favorite) Icon(Icons.star_rounded, size: 15, color: selected ? ink : KPalette.orange),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+/// Vignette d'un film ou d'une série (affiche, titre, progression) pour l'affichage en grille.
+class ItemTile extends StatelessWidget {
+  const ItemTile({super.key, required this.item, required this.selected});
+  final MediaItem item;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final favorite = context.library.isFavorite(item.id);
+    final fraction = context.watch.fraction(item.id);
+    return MenuTap(
+      onMenu: (details) => showItemMenu(context, item, details.globalPosition),
+      child: Hover(
+        onTap: () => openItem(context, item),
+        builder: (context, hovering) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: selected || hovering ? KPalette.accent : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LayoutBuilder(
+                  builder: (context, c) => Stack(fit: StackFit.expand, children: [
+                    PosterImage(url: item.logo, name: item.displayName, width: c.maxWidth, height: c.maxHeight),
+                    if (favorite)
+                      const Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Icon(Icons.star_rounded, size: 18, color: KPalette.orange, shadows: [Shadow(blurRadius: 4)]),
+                      ),
+                    if (fraction != null)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: LinearProgressIndicator(value: fraction, minHeight: 3, color: KPalette.orange, backgroundColor: Colors.black54),
+                      ),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 34,
+            child: Text(item.displayName,
+                style: kText(12, weight: FontWeight.w500, color: selected ? KPalette.accent : null), maxLines: 2, overflow: TextOverflow.ellipsis),
+          ),
+        ]),
       ),
     );
   }

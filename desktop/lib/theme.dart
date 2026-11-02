@@ -89,7 +89,14 @@ class KPalette {
 
   /// Accent des zones toujours sombres.
   static Color get accentDark => accentChoice.dark;
+
+  /// Texte lisible sur l'accent (sombre sur les accents clairs : orange, vert, turquoise).
+  static Color get onAccent => onColor(accent);
 }
+
+/// Texte lisible sur un fond : blanc sur les fonds foncés, presque noir sur les fonds clairs.
+Color onColor(Color background) =>
+    background.computeLuminance() > 0.3 ? const Color(0xFF1D1D1F) : Colors.white;
 
 /// Styles de texte : Nunito (arrondie, comme SF Pro Rounded) pour les titres, Inter pour le reste.
 /// Sans couleur précisée, le texte prend la couleur du thème.
@@ -145,7 +152,7 @@ ThemeData buildTheme({bool? light}) {
       overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
     ),
     filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(backgroundColor: accent, foregroundColor: Colors.white, textStyle: kText(13, weight: FontWeight.w600, color: Colors.white)),
+      style: FilledButton.styleFrom(backgroundColor: accent, foregroundColor: onColor(accent), textStyle: kText(13, weight: FontWeight.w600, color: onColor(accent))),
     ),
     textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: accent)),
     switchTheme: SwitchThemeData(
